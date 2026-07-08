@@ -1,0 +1,42 @@
+name: Build GRID-SHIELD App
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10' # Aap apna version set kar sakte hain
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Build Backend Executable
+      run: |
+        # Backend ke liye console app banayenge taaki logs dikhein
+        # Agar 'extra' folder mein modules hain toh use add karna zaroori hai
+        pyinstaller --onefile --add-data "extra;extra" Backend.py
+
+    - name: Build GUI Executable
+      run: |
+        # GUI ke liye --windowed flag use karenge taaki background console na khule
+        pyinstaller --onefile --windowed --add-data "extra;extra" gui.py
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: GRID-SHIELD-Executables
+        path: dist/ # PyInstaller .exe files ko dist/ folder mein save karta hai
