@@ -599,10 +599,10 @@ class Backend:
         # Consecutive-failure threshold
         try:
             self.CONSECUTIVE_FAILURES_THRESHOLD = int(
-                os.environ.get("CONSECUTIVE_FAILURES_THRESHOLD", "3")
+                os.environ.get("CONSECUTIVE_FAILURES_THRESHOLD", "2")
             )
         except Exception:
-            self.CONSECUTIVE_FAILURES_THRESHOLD = 3
+            self.CONSECUTIVE_FAILURES_THRESHOLD = 2
 
         self.load_data()
         self._print(f"[Backend] {len(self.nodes)} nodes loaded. "

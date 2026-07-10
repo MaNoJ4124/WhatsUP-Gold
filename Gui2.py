@@ -68,7 +68,7 @@ from PyQt5.QtWidgets import (
     QFileDialog, QProgressBar, QFrame, QScrollArea, QTabWidget,
     QHeaderView, QAbstractItemView, QSizePolicy, QSpacerItem,
     QStyleFactory, QToolBar, QToolButton, QGridLayout, QListWidget,
-    QListWidgetItem, QCheckBox, QCompleter, QSlider, QSystemTrayIcon,
+    QListWidgetItem, QCheckBox, QCompleter, QSlider,
     QColorDialog
 )
 from PyQt5.QtCore import (
@@ -2808,8 +2808,6 @@ class App(QMainWindow):
         handler = MyHandler(self)
         self.observer.schedule(handler, path=os.path.dirname(self.data_file) or ".", recursive=False)
         self.observer.start()
-        # Priority 1 & 2: System Tray
-        self._init_system_tray()
         self.log_panel.add_log("Application started")
 
     def _build_ui(self):
@@ -3009,15 +3007,6 @@ class App(QMainWindow):
                         line.refresh_health()
                     except Exception:
                         pass
-                # Priority 1: tray alert for newly down nodes
-                for s in sd["nodes"]:
-                    n = nbn.get(s["name"])
-                    if n and not n.alive and not n.disabled:
-                        self._tray_alert_node_down(n.node_name)
-                        break
-                # Reset tray icon if all active nodes up
-                if all(n.alive or n.disabled for n in self.nodes if n.sheet_name == self.current_sheet):
-                    self._tray_reset_icon()
         except Exception as e:
             logger.error(f"_on_status_loaded: {e}")
 
@@ -4448,72 +4437,6 @@ class App(QMainWindow):
             self.statusBar().showMessage("Nothing to redo", 2000)
 
     # ══════════════════════════════════════════════════════════════════
-    # SYSTEM TRAY (Priority 1 & 2)
-    # ══════════════════════════════════════════════════════════════════
-    def _init_system_tray(self):
-        from PyQt5.QtWidgets import QSystemTrayIcon
-        try:
-            self._tray = QSystemTrayIcon(self)
-            # Create a simple icon pixmap
-            pm = QPixmap(16, 16)
-            pm.fill(QColor("#3a7cff"))
-            self._tray.setIcon(QIcon(pm))
-            self._tray.setToolTip("GRID-SHIELD Plant Monitor")
-            tray_menu = QMenu()
-            tray_menu.addAction("📋 Show/Hide", self._tray_toggle_window)
-            tray_menu.addSeparator()
-            tray_menu.addAction("❌ Exit", self.close)
-            self._tray.setContextMenu(tray_menu)
-            self._tray.activated.connect(self._tray_activated)
-            self._tray.show()
-        except Exception as e:
-            logger.warning(f"Tray init failed: {e}")
-            self._tray = None
-
-    def _tray_toggle_window(self):
-        if self.isVisible():
-            self.hide()
-        else:
-            self.show()
-            self.raise_()
-            self.activateWindow()
-
-    def _tray_activated(self, reason):
-        from PyQt5.QtWidgets import QSystemTrayIcon
-        if reason == QSystemTrayIcon.DoubleClick:
-            self._tray_toggle_window()
-
-    def _tray_alert_node_down(self, node_name: str):
-        """Show tray notification when a node goes down."""
-        if not getattr(self, '_tray', None):
-            return
-        try:
-            from PyQt5.QtWidgets import QSystemTrayIcon
-            # Red icon for alert
-            pm = QPixmap(16, 16)
-            pm.fill(QColor("#e74c3c"))
-            self._tray.setIcon(QIcon(pm))
-            self._tray.showMessage(
-                "⚠️ Node Down — GRID-SHIELD",
-                f"'{node_name}' is DOWN!",
-                QSystemTrayIcon.Warning,
-                5000
-            )
-        except Exception:
-            pass
-
-    def _tray_reset_icon(self):
-        """Reset tray icon to blue when all nodes are up."""
-        if not getattr(self, '_tray', None):
-            return
-        try:
-            pm = QPixmap(16, 16)
-            pm.fill(QColor("#3a7cff"))
-            self._tray.setIcon(QIcon(pm))
-        except Exception:
-            pass
-
-    # ══════════════════════════════════════════════════════════════════
     # GROUP COLOR THEME (Priority 2)
     # ══════════════════════════════════════════════════════════════════
     def set_group_color(self, group):
@@ -4664,11 +4587,6 @@ class App(QMainWindow):
         try:
             self.db_cursor.close()
             self.db_conn.close()
-        except Exception:
-            pass
-        try:
-            if getattr(self, '_tray', None):
-                self._tray.hide()
         except Exception:
             pass
         e.accept()
