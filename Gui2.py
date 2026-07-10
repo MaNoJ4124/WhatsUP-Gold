@@ -4441,18 +4441,36 @@ class App(QMainWindow):
     # ══════════════════════════════════════════════════════════════════
     def set_group_color(self, group):
         from PyQt5.QtWidgets import QColorDialog
-        c = QColorDialog.getColor(
-            QColor(group.custom_color or "#3a7cff"),
-            self, f"Color for '{group.group_name}'"
-        )
-        if c.isValid():
-            old_color = group.custom_color
-            new_color = c.name()
-            cmd = GroupColorCommand(self, group, old_color, new_color)
-            cmd.execute()
-            self._undo_stack.push(cmd)
-            self.save_data()
+
+        dialog = QColorDialog(self)
+        dialog.setWindowTitle(f"Color for '{group.group_name}'")
+        dialog.setCurrentColor(QColor(group.custom_color or "#3a7cff"))
+
+        default_btn = QPushButton("Default")
+        default_btn.setAutoDefault(False)
+        default_btn.clicked.connect(lambda: dialog.done(2))
+        dialog.layout().addWidget(default_btn)
+
+        result = dialog.exec_()
+        if result == 2:
+            new_color = ""
+        elif result == QDialog.Accepted:
+            color = dialog.selectedColor()
+            if not color.isValid():
+                return
+            new_color = color.name()
+        else:
+            return
+
+        old_color = group.custom_color or ""
+        cmd = GroupColorCommand(self, group, old_color, new_color)
+        cmd.execute()
+        self._undo_stack.push(cmd)
+        self.save_data()
+        if new_color:
             self.log_panel.add_log(f"Group '{group.group_name}' color set to {new_color}")
+        else:
+            self.log_panel.add_log(f"Group '{group.group_name}' color reset to default")
 
     # ══════════════════════════════════════════════════════════════════
     # AUTO LAYOUT — Force-directed (Priority 3)
