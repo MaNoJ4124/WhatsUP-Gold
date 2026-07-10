@@ -4488,7 +4488,7 @@ class App(QMainWindow):
         import math
         n = len(sn)
         cols = max(1, math.ceil(math.sqrt(n)))
-        gap = 150
+        gap = 250
         for i, node in enumerate(sn):
             row = i // cols
             col = i % cols
