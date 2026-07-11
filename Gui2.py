@@ -8,6 +8,7 @@ try:
     from mysql.connector.plugins import mysql_native_password, caching_sha2_password  # noqa
 except Exception:
     pass
+from ast import Continue
 import os as _os_env
 try:
     from dotenv import load_dotenv as _load_dotenv
@@ -3174,9 +3175,13 @@ class App(QMainWindow):
                 node.last_active = nd.get('last_active', node.last_active)
                 node.total_down_time = nd.get('total_down_time', node.total_down_time)
                 node.last_down_time = nd.get('last_down_time', node.last_down_time)
-                node.notes = nd.get('notes', node.notes)
-                node.tags = nd.get('tags', getattr(node, 'tags', '')) or ''
-                node.ping_interval = int(nd.get('ping_interval', getattr(node, 'ping_interval', 0)) or 0)
+                if self._editing_node is not node:  # ← GUARD: dialog khula ho to skip
+                    node.ip1 = nd.get('ip1', node.ip1)
+                    node.ip2 = nd.get('ip2', node.ip2)
+                    node.shape_type = nd.get('shape', node.shape_type)
+                    node.notes = nd.get('notes', node.notes)
+                    node.tags = nd.get('tags', getattr(node, 'tags', '')) or ''
+                    node.ping_interval = int(nd.get('ping_interval', getattr(node, 'ping_interval', 0)) or 0)
                 node.node_size = safe_int(nd.get('size', node.node_size), node.node_size)
                 node._radius = max(12, node.node_size)
                 node.sheet_name = nd.get('sheet_name', node.sheet_name)
@@ -4132,6 +4137,8 @@ class App(QMainWindow):
                                 ('tags', 'tags')]:
                     val = nd.get(fld)
                     if val is not None:
+                        if self._editing_node is node:
+                            Continue  # skip updating fields while user is editing this node
                         setattr(node, attr, val)
                 node.alive = bool(nd.get('alive', node.alive))
                 node.disabled = bool(nd.get('disabled', node.disabled))
