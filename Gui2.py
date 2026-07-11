@@ -1224,10 +1224,19 @@ class NodeItem(QGraphicsItem):
         else:
             font = QFont("Segoe UI", 11, QFont.Bold)
         fm = QFontMetrics(font)
-        text_width = fm.horizontalAdvance(self.node_name)
-        text_height = fm.height()
-        half = max(r, text_width / 2) + 4
-        return QRectF(-half, -r, half * 2, r * 2 + text_height + 10)
+
+        lines = self.node_name.split("\n")
+        text_width = max(fm.horizontalAdvance(line) for line in lines) if lines else 0
+        text_height = fm.height() * len(lines)
+
+        half = max(r, text_width / 2) + 6
+
+        return QRectF(
+            -half,
+            -r,
+            half * 2,
+            r * 2 + text_height + 12
+        )
 
     def shape(self):
         p = QPainterPath()
@@ -1298,9 +1307,17 @@ class NodeItem(QGraphicsItem):
             font = QFont("Segoe UI", 11, QFont.Bold)
         painter.setFont(font)
         fm = painter.fontMetrics()
-        tw = fm.horizontalAdvance(self.node_name)
-        th = fm.height()
-        text_rect = QRectF(-max(r, tw / 2) - 4, r + 6, max(r * 2, tw + 8), th + 4)
+
+        lines = self.node_name.split("\n")
+        max_width = max(fm.horizontalAdvance(line) for line in lines) if lines else 0
+        text_height = fm.height() * len(lines)
+
+        text_rect = QRectF(
+            -max(r, max_width / 2) - 6,
+            r + 6,
+            max(r * 2, max_width + 12),
+            text_height + 6
+        )
         bg_color = QColor(_get_color("LABEL_BG"))
         bg_color.setAlpha(220)
         painter.setPen(QPen(QColor(_get_color("BORDER")), 0.5))
@@ -1311,7 +1328,12 @@ class NodeItem(QGraphicsItem):
         else:
             painter.setPen(QColor(_get_color("LABEL_FG")))
         painter.setBrush(Qt.NoBrush)
-        painter.drawText(text_rect, Qt.AlignHCenter | Qt.AlignTop, self.node_name)
+        
+        painter.drawText(
+            text_rect,
+            Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap,
+            self.node_name
+        )
 
     def hoverEnterEvent(self, e):
         self._hovered = True
@@ -1387,6 +1409,7 @@ class NodeItem(QGraphicsItem):
         return super().itemChange(change, value)
 
     def contextMenuEvent(self, e):
+        self.app.select_node_item(self)
         menu = QMenu()
         menu.setStyleSheet(DARK_STYLESHEET)
         menu.addAction("Open with Winbox", lambda: self._open_winbox())
@@ -2452,6 +2475,8 @@ class EditNodeDialog(QDialog):
     def _save(self):
         ts = {"Plant": "diamond", "IGR": "square", "Dish": "circle"}
         nn = self.name_input.toPlainText().strip()
+        
+
         if not nn:
             QMessageBox.warning(self, "Error", "Name empty")
             return
