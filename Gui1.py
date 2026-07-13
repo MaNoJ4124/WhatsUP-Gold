@@ -345,10 +345,11 @@ def embedded_load_network_from_mysql():
         for r in cur.fetchall():
             gid = r['group_id']
             nm = r['name']
-            if gid in gbi:
-                gbi[gid]['nodes'].append(nm)
-            if nm in nbn:
-                nbn[nm]['group'] = gbi[gid]['name']
+            grp = gbi.get(gid)
+            if grp:
+                grp['nodes'].append(nm)
+            if nm in nbn and grp:
+                nbn[nm]['group'] = grp['name']
         return {'sheets': sheets, 'current_sheet': 'Main', 'sheet_zoom': {}, 'nodes': nodes, 'groups': groups}
     except Exception as e:
         logger.error(f"embedded_load_network_from_mysql error: {e}")

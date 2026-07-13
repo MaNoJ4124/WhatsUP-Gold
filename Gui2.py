@@ -500,10 +500,11 @@ def embedded_load_network_from_mysql():
         for r in cur.fetchall():
             gid = r['group_id']
             nm = r['name']
-            if gid in gbi:
-                gbi[gid]['nodes'].append(nm)
-            if nm in nbn:
-                nbn[nm]['group'] = gbi[gid]['name']
+            grp = gbi.get(gid)
+            if grp:
+                grp['nodes'].append(nm)
+            if nm in nbn and grp:
+                nbn[nm]['group'] = grp['name']
         return {'sheets': sheets, 'current_sheet': 'Main', 'sheet_zoom': {}, 'nodes': nodes, 'groups': groups}
     except Exception as e:
         logger.error(f"embedded_load_network_from_mysql error: {e}")
@@ -763,7 +764,7 @@ class DbWorker(QObject):
     def _ensure(self):
         try:
             if self._conn is not None:
-                self._conn.ping(reconnect=True)
+                self._conn.ping()
                 return self._conn
         except Exception:
             try:
@@ -771,8 +772,13 @@ class DbWorker(QObject):
             except Exception:
                 pass
             self._conn = None
-        self._conn = pymysql.connect(**self._cfg)
-        return self._conn
+
+        try:
+            self._conn = pymysql.connect(**self._cfg)
+            return self._conn
+        except Exception:
+            self._conn = None
+            raise
 
     @pyqtSlot()
     def fetch_meta_ts(self):
@@ -1354,9 +1360,19 @@ class NodeItem(QGraphicsItem):
 
     def mousePressEvent(self, e):
         if e.button() == Qt.LeftButton:
+            # Important: Clear previous selection before selecting new one
+            if self.app.selected_node and self.app.selected_node is not self:
+                self.app.selected_node.set_selected(False)
+            
             self.app.select_node_item(self)
             self._drag_start_x = self.base_x
             self._drag_start_y = self.base_y
+            
+            # Ensure only this item is selected in scene
+            if self.scene():
+                self.scene().clearSelection()
+                self.setSelected(True)
+                
         super().mousePressEvent(e)
 
     def mouseDoubleClickEvent(self, e):
@@ -2151,26 +2167,84 @@ class AddUserDialog(QDialog):
         lo.addWidget(b)
 
     def _save(self):
-        u = self.user_input.text().strip()
-        p = self.pass_input.text().strip()
-        if not u or not p:
-            self.err.setText("Fill all fields")
+        ts = {"Plant": "diamond", "IGR": "square", "Dish": "circle"}
+        nn = self.name_input.toPlainText().strip()
+
+        if not nn:
+            QMessageBox.warning(self, "Error", "Name empty")
             return
-        role = self.role_combo.currentText()
+
+        old = self.node.node_name
+        name_changed = old != nn
+
+        # Duplicate name handling
+        existing_names = [n.node_name for n in self.app.nodes if n is not self.node]
+        if name_changed and nn in existing_names:
+            base = nn
+            suffix = 2
+            while nn in existing_names:
+                nn = f"{base} {suffix}"
+                suffix += 1
+
+        new_ip1 = self.ip1_input.text().strip()
+        new_ip2 = self.ip2_input.text().strip()
+        new_shape = ts.get(self.type_combo.currentText(), "circle")
+        new_group = self.group_combo.currentText()
+        new_notes = self.notes_input.toPlainText()
+        new_tags = self.tags_input.text().strip() if hasattr(self, 'tags_input') else getattr(self.node, 'tags', '')
+        
         try:
-            h = _hash_password(p)
-            self.db_cursor.execute("INSERT INTO users(username,password,role) VALUES(%s,%s,%s)", (u, h, role))
-            self.db_conn.commit()
-            if self.app:
-                self.app.log_audit("User Created",
-                                   f"Username='{u}' | PlainPassword='{p}' | Role='{role}' | CreatedBy=UserID:{self.app.current_user_id}")
-                self.app.log_panel.add_log(f"User '{u}' created with role '{role}'")
-            QMessageBox.information(self, "Success", f"User '{u}' created")
-            self.accept()
-        except pymysql_err.IntegrityError:
-            self.err.setText("Username exists")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed: {e}")
+            new_ping_interval = int(self.ping_interval_input.text().strip() or '0')
+        except ValueError:
+            new_ping_interval = 0
+        new_size = self.size_slider.value() if hasattr(self, 'size_slider') else self.node.node_size
+
+        # ==================== MAIN FIX ====================
+        self.node.prepareGeometryChange()
+        self.node.node_name = nn
+        self.node.update()
+
+        # Connection lines fix (Multi-line name ke liye zaroori)
+        if name_changed:
+            self._update_connection_lines_after_rename(old, nn)
+        # =================================================
+
+        self.node.ip1 = new_ip1
+        self.node.ip2 = new_ip2
+        self.node.shape_type = new_shape
+        self.node.notes = new_notes
+        self.node.tags = new_tags
+        self.node.ping_interval = new_ping_interval
+
+        if new_size != self.node.node_size:
+            self.node.node_size = new_size
+            self.node._radius = max(12, new_size)
+            self.node.prepareGeometryChange()
+
+        # Group handling (existing code)
+        sg = new_group
+        og = self.node.group
+        if sg == "None":
+            if og:
+                og.remove_node(self.node)
+        else:
+            ng = next((g for g in self.app.groups if g.group_name == sg and g.sheet_name == self.node.sheet_name), None)
+            if ng and ng != og:
+                if og:
+                    og.remove_node(self.node)
+                ng.add_node(self.node)
+
+        self.node.update()
+        self.app.update_connections_for(self.node)
+        self.app.save_data()
+
+        # Logging
+        if name_changed:
+            self.app.log_audit("Node Renamed", 
+                              f"Old='{old}' → New='{nn}' | Sheet='{self.node.sheet_name}'")
+            self.app.log_panel.add_log(f"Renamed '{old}' → '{nn}'")
+        else:
+            self.app.log_panel.add_log(f"Edited '{old}'")
 
 
 class EditNodeDialog(QDialog):
@@ -2456,7 +2530,37 @@ class EditNodeDialog(QDialog):
     def _refresh_conn_label(self):
         curr = [c.node_name for c in self.node.connections]
         self.conn_list_label.setText(", ".join(curr) if curr else "None")
+    def _update_connection_lines_after_rename(self, old_name: str, new_name: str):
+        """Fix connection lines when node name is changed (especially multi-line)"""
+        app = self.app
+        node = self.node
+        
+        # Purane keys dhundo
+        keys_to_update = [key for key in list(app.connection_lines.keys()) if old_name in key]
 
+        for old_key in keys_to_update:
+            line = app.connection_lines.pop(old_key, None)
+            if line and line.scene():
+                try:
+                    line.scene().removeItem(line)
+                except:
+                    pass
+
+        # Naye keys ke saath lines recreate karo
+        for other_node in list(node.connections):
+            if other_node.sheet_name != node.sheet_name:
+                continue
+            new_key = frozenset({node.node_name, other_node.node_name})
+            if new_key not in app.connection_lines:
+                try:
+                    new_line = ConnectionLine(node, other_node)
+                    app.scene.addItem(new_line)
+                    app.connection_lines[new_key] = new_line
+                except Exception as e:
+                    logger.error(f"Failed to recreate line: {e}")
+
+        # Final refresh
+        app.update_connections_for(node)
     def _tick(self):
         try:
             n = self.node
@@ -2473,6 +2577,7 @@ class EditNodeDialog(QDialog):
             pass
 
     def _save(self):
+        
         ts = {"Plant": "diamond", "IGR": "square", "Dish": "circle"}
         nn = self.name_input.toPlainText().strip()
         
@@ -2518,9 +2623,15 @@ class EditNodeDialog(QDialog):
             changes.append(f"Notes: '{old_preview}'→'{new_preview}'")
 
         old = self.node.node_name
+        name_changed = old != nn
+
         self.node.prepareGeometryChange()
         self.node.node_name = nn
         self.node.update()
+
+        # Connection lines fix for multi-line names
+        if name_changed:
+            self._update_connection_lines_after_rename(old, nn)
         self.node.ip1 = new_ip1
         self.node.ip2 = new_ip2
         self.node.shape_type = new_shape
@@ -2960,13 +3071,24 @@ class App(QMainWindow):
 
     def _ensure_db_conn(self):
         try:
-            self.db_conn.ping(reconnect=True)
+            if self.db_conn is not None:
+                self.db_conn.ping()
+                return
         except Exception:
             try:
-                self.db_conn = pymysql.connect(**MYSQL_CONFIG, autocommit=False)
-                self.db_cursor = self.db_conn.cursor()
+                if self.db_conn is not None:
+                    self.db_conn.close()
             except Exception:
                 pass
+            self.db_conn = None
+            self.db_cursor = None
+
+        try:
+            self.db_conn = pymysql.connect(**MYSQL_CONFIG, autocommit=False)
+            self.db_cursor = self.db_conn.cursor()
+        except Exception:
+            self.db_conn = None
+            self.db_cursor = None
 
     # ══════════════════════════════════════════════════════════════════
     # Background workers — DB & Export run on separate QThreads
@@ -3467,10 +3589,19 @@ class App(QMainWindow):
             self.properties_panel.show_node(n)
 
     def select_node_item(self, n):
+        """Proper single selection"""
+        # Clear all previous selections
         if self.selected_node and self.selected_node is not n:
             self.selected_node.set_selected(False)
+        
+        # Clear scene selection
+        if self.scene:
+            self.scene.clearSelection()
+        
         self.selected_node = n
         n.set_selected(True)
+        n.setZValue(11)  # Bring to front
+        
         self.properties_panel.show_node(n)
 
     def focus_node_by_name(self, nm):
