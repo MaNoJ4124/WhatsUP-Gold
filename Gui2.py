@@ -2167,85 +2167,26 @@ class AddUserDialog(QDialog):
         lo.addWidget(b)
 
     def _save(self):
-        ts = {"Plant": "diamond", "IGR": "square", "Dish": "circle"}
-        nn = self.name_input.toPlainText().strip()
-
-        if not nn:
-            QMessageBox.warning(self, "Error", "Name empty")
+        u = self.user_input.text().strip()
+        p = self.pass_input.text().strip()
+        if not u or not p:
+            self.err.setText("Fill all fields")
             return
-
-        old = self.node.node_name
-        name_changed = old != nn
-
-        # Duplicate name handling
-        existing_names = [n.node_name for n in self.app.nodes if n is not self.node]
-        if name_changed and nn in existing_names:
-            base = nn
-            suffix = 2
-            while nn in existing_names:
-                nn = f"{base} {suffix}"
-                suffix += 1
-
-        new_ip1 = self.ip1_input.text().strip()
-        new_ip2 = self.ip2_input.text().strip()
-        new_shape = ts.get(self.type_combo.currentText(), "circle")
-        new_group = self.group_combo.currentText()
-        new_notes = self.notes_input.toPlainText()
-        new_tags = self.tags_input.text().strip() if hasattr(self, 'tags_input') else getattr(self.node, 'tags', '')
-        
+        role = self.role_combo.currentText()
         try:
-            new_ping_interval = int(self.ping_interval_input.text().strip() or '0')
-        except ValueError:
-            new_ping_interval = 0
-        new_size = self.size_slider.value() if hasattr(self, 'size_slider') else self.node.node_size
-
-        # ==================== MAIN FIX ====================
-        self.node.prepareGeometryChange()
-        self.node.node_name = nn
-        self.node.update()
-
-        # Connection lines fix (Multi-line name ke liye zaroori)
-        if name_changed:
-            self._update_connection_lines_after_rename(old, nn)
-        # =================================================
-
-        self.node.ip1 = new_ip1
-        self.node.ip2 = new_ip2
-        self.node.shape_type = new_shape
-        self.node.notes = new_notes
-        self.node.tags = new_tags
-        self.node.ping_interval = new_ping_interval
-
-        if new_size != self.node.node_size:
-            self.node.node_size = new_size
-            self.node._radius = max(12, new_size)
-            self.node.prepareGeometryChange()
-
-        # Group handling (existing code)
-        sg = new_group
-        og = self.node.group
-        if sg == "None":
-            if og:
-                og.remove_node(self.node)
-        else:
-            ng = next((g for g in self.app.groups if g.group_name == sg and g.sheet_name == self.node.sheet_name), None)
-            if ng and ng != og:
-                if og:
-                    og.remove_node(self.node)
-                ng.add_node(self.node)
-
-        self.node.update()
-        self.app.update_connections_for(self.node)
-        self.app.save_data()
-
-        # Logging
-        if name_changed:
-            self.app.log_audit("Node Renamed", 
-                              f"Old='{old}' → New='{nn}' | Sheet='{self.node.sheet_name}'")
-            self.app.log_panel.add_log(f"Renamed '{old}' → '{nn}'")
-        else:
-            self.app.log_panel.add_log(f"Edited '{old}'")
-
+            h = _hash_password(p)
+            self.db_cursor.execute("INSERT INTO users(username,password,role) VALUES(%s,%s,%s)", (u, h, role))
+            self.db_conn.commit()
+            if self.app:
+                self.app.log_audit("User Created",
+                                   f"Username='{u}' | PlainPassword='{p}' | Role='{role}' | CreatedBy=UserID:{self.app.current_user_id}")
+                self.app.log_panel.add_log(f"User '{u}' created with role '{role}'")
+            QMessageBox.information(self, "Success", f"User '{u}' created")
+            self.accept()
+        except pymysql_err.IntegrityError:
+            self.err.setText("Username exists")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed: {e}")
 
 class EditNodeDialog(QDialog):
     def __init__(self, node: NodeItem, app: "App", parent=None):
