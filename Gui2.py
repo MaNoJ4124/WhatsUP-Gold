@@ -2318,15 +2318,15 @@ class EditNodeDialog(QDialog):
         form.addRow(self.size_slider)
         lo.addLayout(form)
         inf = QFrame()
-        inf.setStyleSheet("background:#f0f2f5;border-radius:6px;padding:6px")
+        inf.setStyleSheet(f"background:{_get_color('CGBG')};border-radius:6px;padding:6px;border:1px solid {'#2d2d44' if _CURRENT_COLORS.get('CBG','#fff')!='#ffffff' else '#dfe6e9'}")
         il2 = QVBoxLayout(inf)
         il2.setSpacing(3)
         last_active_text = self.app.fmt_dt(node.last_active)
         self._last_active_lbl = QLabel(f"Last Active: {last_active_text}")
-        self._last_active_lbl.setStyleSheet("color:#27ae60;font-size:11px")
+        self._last_active_lbl.setStyleSheet(f"color:{_get_color('CUP')};font-size:11px")
         il2.addWidget(self._last_active_lbl)
         self._uptime_lbl = QLabel("Total Uptime: 00:00:00:00")
-        self._uptime_lbl.setStyleSheet("color:#3a7cff;font-size:11px")
+        self._uptime_lbl.setStyleSheet(f"color:{_get_color('CSEL')};font-size:11px")
         il2.addWidget(self._uptime_lbl)
         if node.last_down_time and node.last_down_time > 0:
             try:
@@ -2340,7 +2340,7 @@ class EditNodeDialog(QDialog):
         il2.addWidget(self._down_lbl)
         lo.addWidget(inf)
         conn_frame = QFrame()
-        conn_frame.setStyleSheet("background:#f0f8ff;border-radius:6px;padding:8px")
+        conn_frame.setStyleSheet(f"background:{_get_color('CGBG')};border-radius:6px;padding:8px;border:1px solid {'#2d2d44' if _CURRENT_COLORS.get('CBG','#fff')!='#ffffff' else '#dfe6e9'}")
         cl = QVBoxLayout(conn_frame)
         cl.setSpacing(6)
         conn_title = QLabel("Current Connections:")
@@ -2366,6 +2366,7 @@ class EditNodeDialog(QDialog):
         completer.setFilterMode(Qt.MatchContains)
         self.conn_combo.setCompleter(completer)
         self.conn_combo.addItems(["None"] + available)
+        # self._apply_combobox_style(self.conn_combo)
         ch.addWidget(self.conn_combo, 1)
         conn_add_btn = QPushButton("Connect")
         conn_add_btn.setMinimumHeight(32)
@@ -2407,6 +2408,7 @@ class EditNodeDialog(QDialog):
         bl.addWidget(sv)
         bl.addWidget(cn)
         outer.addWidget(btn_bar)
+    
 
     def _manage_connection(self):
         try:
