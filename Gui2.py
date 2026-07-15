@@ -302,6 +302,13 @@ def embedded_create_tables_if_not_exist():
             pass
         cur.execute('CREATE TABLE IF NOT EXISTS group_members (group_id INT, node_id INT, PRIMARY KEY(group_id,node_id), FOREIGN KEY(group_id) REFERENCES node_groups(id) ON DELETE CASCADE, FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE) ENGINE=InnoDB')
         cur.execute('CREATE TABLE IF NOT EXISTS connections (id INT AUTO_INCREMENT PRIMARY KEY, node_id INT, target_node_id INT, FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE, FOREIGN KEY(target_node_id) REFERENCES nodes(id) ON DELETE CASCADE) ENGINE=InnoDB')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS network_meta (
+                id INT PRIMARY KEY,
+                last_modified DOUBLE DEFAULT 0,
+                last_modified_by VARCHAR(64) DEFAULT ''
+            ) ENGINE=InnoDB
+        ''')
         # Priority 1: Node tags column
         try:
             cur.execute("ALTER TABLE nodes ADD COLUMN tags VARCHAR(500) DEFAULT ''")
@@ -440,6 +447,13 @@ def embedded_save_network_to_mysql(data: dict) -> bool:
                             cursor.execute("INSERT IGNORE INTO connections(node_id,target_node_id) VALUES(%s,%s)",
                                            (sid, tid))
             cursor.execute("SET FOREIGN_KEY_CHECKS=1")
+            cursor.execute(
+                "INSERT INTO network_meta(id, last_modified, last_modified_by) "
+                "VALUES(1, %s, 'gui_save') "
+                "ON DUPLICATE KEY UPDATE last_modified=VALUES(last_modified), "
+                "last_modified_by=VALUES(last_modified_by)",
+                (time.time(),)
+            )
             conn.commit()
             return True
         except Exception as e:
@@ -1419,9 +1433,9 @@ class NodeItem(QGraphicsItem):
             pass
 
     def itemChange(self, change, value):
-        if change == QGraphicsItem.ItemPositionChange and self.scene():
-            QTimer.singleShot(0, lambda: self.app.update_connections_for(self))
-            QTimer.singleShot(0, self._safe_update_group_boundaries)
+        if change == QGraphicsItem.ItemPositionChange and self.scene():      
+            self.app.update_connections_for(self)
+            self._safe_update_group_boundaries()
         return super().itemChange(change, value)
 
     def contextMenuEvent(self, e):
@@ -2290,14 +2304,6 @@ class EditNodeDialog(QDialog):
         self.tags_input.setPlaceholderText("#critical, #tower, #backup")
         self.tags_input.setText(getattr(node, 'tags', '') or '')
         form.addRow(self.tags_input)
-        # Priority 1: Per-node ping interval
-        pi_lbl = QLabel("Ping Interval (sec, 0=global):")
-        pi_lbl.setStyleSheet("font-weight:bold;font-size:11px")
-        form.addRow(pi_lbl)
-        self.ping_interval_input = QLineEdit()
-        self.ping_interval_input.setPlaceholderText("0 = global interval")
-        self.ping_interval_input.setText(str(getattr(node, 'ping_interval', 0) or 0))
-        form.addRow(self.ping_interval_input)
         # Priority 3: Node size slider
         size_lbl = QLabel(f"Node Size: {node.node_size}")
         size_lbl.setStyleSheet("font-weight:bold;font-size:11px")
@@ -2540,10 +2546,6 @@ class EditNodeDialog(QDialog):
         new_group = self.group_combo.currentText()
         new_notes = self.notes_input.toPlainText()
         new_tags = self.tags_input.text().strip() if hasattr(self, 'tags_input') else getattr(self.node, 'tags', '')
-        try:
-            new_ping_interval = int(self.ping_interval_input.text().strip() or '0') if hasattr(self, 'ping_interval_input') else 0
-        except ValueError:
-            new_ping_interval = 0
         new_size = self.size_slider.value() if hasattr(self, 'size_slider') else self.node.node_size
 
         changes = []
@@ -2578,7 +2580,6 @@ class EditNodeDialog(QDialog):
         self.node.shape_type = new_shape
         self.node.notes = new_notes
         self.node.tags = new_tags
-        self.node.ping_interval = new_ping_interval
         if new_size != self.node.node_size:
             self.node.node_size = new_size
             self.node._radius = max(12, new_size)
